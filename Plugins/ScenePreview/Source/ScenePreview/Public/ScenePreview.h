@@ -4,6 +4,8 @@
 
 #include "Modules/ModuleManager.h"
 
+class SScenePreviewImage;
+
 class FScenePreviewModule : public IModuleInterface
 {
 public:
@@ -12,3 +14,4 @@ public:
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;
 };
+

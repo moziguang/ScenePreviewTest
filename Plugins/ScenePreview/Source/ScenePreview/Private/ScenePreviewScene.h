@@ -116,23 +116,15 @@ public:
 	 */
 	void SetCameraFOVAngle(float FOVAngle);
 
-
-
-	class USceneCaptureComponent2D* GetPreviewCamera() const { return PreviewCamera; }
-
-	class UTexture* GetPreviewTexture() const;
-
-private:
-
 	/**
 	 * Adds a SceneCaptureComponent2D to the preview world
 	 */
 	void InitSceneCaptureComponent2D(const FTransform& LocalToWorld = FTransform::Identity);
 
-	/**
-	 * Initializes the render target texture and sets it to the preview camera
-	 */
-	void InitRenderTarget(int32 Width = 1024, int32 Height = 768);
+	class USceneCaptureComponent2D* GetPreviewCamera() const { return PreviewCamera; }
+
+private:
+
 
 	/**
 	 * Spawns an actor in the preview world based on the provided entry
@@ -156,10 +148,8 @@ private:
 	/** Preview camera component */
 	TObjectPtr<class USceneCaptureComponent2D> PreviewCamera = nullptr;
 
-	/** Preview render target texture */
-	TObjectPtr<class UTextureRenderTarget2D> PreviewTexture = nullptr;
-
 protected:
+
 	TObjectPtr<class UWorld> PreviewWorld = nullptr;
 	TObjectPtr<class ULineBatchComponent> LineBatcher = nullptr;
 

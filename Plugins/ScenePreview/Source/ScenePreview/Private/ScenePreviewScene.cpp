@@ -73,13 +73,10 @@ FScenePreviewScene::FScenePreviewScene(FScenePreviewScene::ConstructionValues CV
 	}
 
 	CameraTransform = FTransform::Identity;
-	// Create default preview camera
-    InitSceneCaptureComponent2D(CameraTransform.Get());
-	
+	// Note: InitSceneCaptureComponent2D will be called by SScenePreviewImage::InitializePreviewScene()
 
-	// Initialize render target for the preview camera
-    InitRenderTarget(1024, 1024);
 }
+
 
 
 FScenePreviewScene::~FScenePreviewScene()
@@ -195,8 +192,7 @@ void FScenePreviewScene::RemoveComponent(UActorComponent* Component)
 
 AActor* FScenePreviewScene::SpawnActor(const FScenePreviewWidgetEntry& Entry)
 {
-
-	if (!PreviewWorld || !Entry.ActorClassPtr.IsValid())
+	if (!PreviewWorld || Entry.ActorClassPtr.IsNull())
 	{
 		return nullptr;
 	}
@@ -338,8 +334,8 @@ void FScenePreviewScene::AddReferencedObjects(FReferenceCollector& Collector)
 	Collector.AddReferencedObjects(SpawnedActors);
 	Collector.AddReferencedObject(PreviewWorld);
 	Collector.AddReferencedObject(PreviewCamera);
-	Collector.AddReferencedObject(PreviewTexture);
 	Collector.AddReferencedObject(LineBatcher);
+
 }
 
 
@@ -422,7 +418,29 @@ void FScenePreviewScene::InitSceneCaptureComponent2D(const FTransform& LocalToWo
 	PreviewCamera->ProjectionType = ECameraProjectionMode::Orthographic;
 	PreviewCamera->OrthoWidth = 256;
 	
-	PreviewCamera->TextureTarget = nullptr; // Can be set later if needed
+	// Configure ShowFlags for transparent background with HDR
+	// Disable atmospheric and environmental effects that would fill the alpha channel
+	PreviewCamera->ShowFlags.SetAtmosphere(false);           // 禁用大气效果
+	PreviewCamera->ShowFlags.SetFog(false);                  // 禁用雾效
+	PreviewCamera->ShowFlags.SetVolumetricFog(false);        // 禁用体积雾
+	//PreviewCamera->ShowFlags.SetVolumetricClouds(false);     // 禁用体积云
+	//PreviewCamera->ShowFlags.SetSkybox(false);               // 禁用天空盒
+	PreviewCamera->ShowFlags.SetSkyLighting(false);          // 禁用天空光照
+	
+	// Keep post-processing enabled for HDR tone mapping
+	//PreviewCamera->ShowFlags.SetPostProcessing(true);        // 保持后处理（包括色调映射）
+	//PreviewCamera->ShowFlags.SetTonemapper(true);            // 确保色调映射器启用
+	
+	// Enable essential rendering features
+	PreviewCamera->ShowFlags.SetLighting(true);              // 保持光照
+	PreviewCamera->ShowFlags.SetStaticMeshes(true);          // 显示静态网格
+	PreviewCamera->ShowFlags.SetSkeletalMeshes(true);        // 显示骨骼网格
+	PreviewCamera->ShowFlags.SetTranslucency(true);          // 支持透明材质
+
+	
+	PreviewCamera->TextureTarget = nullptr; // Will be set by SScenePreviewImage
+
+
 
 	// Add the component to the scene
 	AddComponent(PreviewCamera, LocalToWorld);
@@ -489,54 +507,4 @@ void FScenePreviewScene::SetCameraFOVAngle(float FOVAngle)
 }
 
 
-void FScenePreviewScene::InitRenderTarget(int32 Width, int32 Height)
-{
 
-	if (!PreviewWorld)
-	{
-		UE_LOG(LogTemp, Error, TEXT("PreviewWorld is null, cannot initialize render target"));
-        return;
-	}
-
-	if (PreviewTexture)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("PreviewTexture is already exist"));
-		return;
-	}
-
-	// Create render target texture
-	PreviewTexture = NewObject<UTextureRenderTarget2D>(PreviewWorld);
-	if (!PreviewTexture)
-	{
-		UE_LOG(LogTemp, Error, TEXT("Failed to create render target texture"));
-		return;
-	}
-
-	// Configure render target settings for UMG compatibility
-	PreviewTexture->InitCustomFormat(Width, Height, PF_FloatRGBA, true);
-	PreviewTexture->RenderTargetFormat = RTF_RGBA16f;
-	PreviewTexture->bGPUSharedFlag = true;
-	PreviewTexture->bAutoGenerateMips = false;
-	PreviewTexture->ClearColor = FLinearColor(0.0f, 0.0f, 0.0f, 1.0f);
-	PreviewTexture->UpdateResource();
-
-
-	// Set the render target to the preview camera
-	if (PreviewCamera && PreviewCamera->IsValidLowLevel())
-	{
-		PreviewCamera->TextureTarget = PreviewTexture;
-		UE_LOG(LogTemp, Log, TEXT("Initialized render target %dx%d and set to preview camera"), Width, Height);
-	}
-	else
-	{
-		UE_LOG(LogTemp, Warning, TEXT("PreviewCamera is not valid, cannot set render target"));
-	}
-}
-
-
-
-UTexture* FScenePreviewScene::GetPreviewTexture() const
-
-{ 
-    return PreviewTexture.Get(); 
-}

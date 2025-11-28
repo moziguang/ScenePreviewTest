@@ -3,25 +3,25 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Blueprint/UserWidget.h"
+#include "Components/Widget.h"
 #include "ScenePreviewWidgetEntry.h"
 #include "Camera/CameraTypes.h"
 #include "ScenePreviewWidget.generated.h"
 
-class FScenePreviewScene;
-class UImage;
+class SScenePreviewImage;
+class UMaterialInterface;
+
 
 /**
  * 
  */
 UCLASS()
-class SCENEPREVIEW_API UScenePreviewWidget : public UUserWidget
+class SCENEPREVIEW_API UScenePreviewWidget : public UWidget
 {
 	GENERATED_BODY()
+
 public:
 	UScenePreviewWidget(const FObjectInitializer& ObjectInitializer);
-	virtual void NativeConstruct() override;
-	virtual void NativeDestruct() override;
 
 	//~ UWidget interface
 	virtual void SynchronizeProperties() override;
@@ -53,19 +53,32 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "ScenePreviewWidget")
 	void SetCameraFOVAngle(float FOVAngle);
 
+	UFUNCTION(BlueprintCallable, Category = "ScenePreviewWidget")
+	void SetTextureSize(int32 Width, int32 Height);
+
+	UFUNCTION(BlueprintCallable, Category = "ScenePreviewWidget")
+	int32 GetTextureWidth() const;
+
+	UFUNCTION(BlueprintCallable, Category = "ScenePreviewWidget")
+	int32 GetTextureHeight() const;
+
+	UFUNCTION(BlueprintCallable, Category = "ScenePreviewWidget")
+	void SetMaterial(UMaterialInterface* InMaterial);
+
 protected:
-	void RebuildScene();
+	/** Override to create our custom Slate widget */
+	virtual TSharedRef<SWidget> RebuildWidget() override;
 
-	void InitMaterial();
+	bool InitMaterial();
 
-	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
 protected:
-	TSharedPtr<FScenePreviewScene> MyPreviewScene;
+	/** The Slate image widget that manages the preview scene */
+	TSharedPtr<SScenePreviewImage> MyScenePreviewImage;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ScenePreviewWidget")
-
 	TArray<FScenePreviewWidgetEntry> Entries;
+
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ScenePreviewWidget")
 	FTransform CameraTransform;
@@ -74,19 +87,23 @@ protected:
 	TEnumAsByte<ECameraProjectionMode::Type> CameraProjectionType;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ScenePreviewWidget", meta = (editcondition = "CameraProjectionType==1"))
-	float CameraOrthoWidth = 256.0f;
+	float CameraOrthoWidth = 1536.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ScenePreviewWidget", meta = (editcondition = "CameraProjectionType==0"))
 	float CameraFOVAngle = 90.0f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ScenePreviewWidget", meta = (ClampMin = "1", ClampMax = "4096"))
+	int32 TextureWidth = 1024;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ScenePreviewWidget", meta = (ClampMin = "1", ClampMax = "4096"))
+	int32 TextureHeight = 1024;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ScenePreviewWidget", meta = (ToolTip = "Please add a Texture Parameter named 'PreviewTexture' to your material."))
-	TObjectPtr<UMaterialInterface> PreviewMaterial;
+	TObjectPtr<UMaterialInterface> PreviewMaterial;	
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> Material;
-
-
-
-	UPROPERTY(BlueprintReadOnly, meta = (BindWidget))
-	TObjectPtr<UImage> PreviewImage;
 };
+
+
+
