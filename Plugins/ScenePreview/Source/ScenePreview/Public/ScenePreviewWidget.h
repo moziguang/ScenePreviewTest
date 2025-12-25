@@ -65,6 +65,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "ScenePreviewWidget")
 	void SetMaterial(UMaterialInterface* InMaterial);
 
+	UFUNCTION(BlueprintCallable, Category = "ScenePreviewWidget")
+	void CleanupPreviewScene();
+
 protected:
 	/** Override to create our custom Slate widget */
 	virtual TSharedRef<SWidget> RebuildWidget() override;

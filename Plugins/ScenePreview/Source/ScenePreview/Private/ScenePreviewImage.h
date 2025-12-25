@@ -33,7 +33,9 @@ public:
 
 	/**
 	 * Initializes the preview scene
+	 * @param InMaterial Material instance for rendering
 	 * @param InCameraTransform Initial camera transform
+	 * @param InProjectionType Camera projection type (Perspective or Orthographic)
 	 * @param InOrthoWidth Initial orthographic width
 	 * @param InFOVAngle Initial field of view angle
 	 * @param InTextureWidth Initial texture width
@@ -42,6 +44,7 @@ public:
 	void InitializePreviewScene(
 		UMaterialInstanceDynamic* InMaterial,
 		const FTransform& InCameraTransform,
+		TEnumAsByte<ECameraProjectionMode::Type> InProjectionType = ECameraProjectionMode::Orthographic,
 		float InOrthoWidth = 1536.0f,
 		float InFOVAngle = 90.0f,
 		int32 InTextureWidth = 1024,
@@ -53,6 +56,13 @@ public:
 	 * Cleans up the preview scene
 	 */
 	void CleanupPreviewScene();
+
+	/**
+	 * Checks if the preview scene is valid
+	 * @return True if the preview scene is valid, false otherwise
+	 */
+	bool IsPreviewSceneValid() const;
+
 
 	/**
 	 * Updates the scene capture each frame

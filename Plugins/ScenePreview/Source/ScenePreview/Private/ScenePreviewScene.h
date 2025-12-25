@@ -21,7 +21,7 @@ public:
 	struct ConstructionValues
 	{
 		ConstructionValues()
-			: bDefaultLighting(true)
+			: bDefaultLighting(false)
 			, bAllowAudioPlayback(false)
 			, bForceMipsResident(true)
 			, bTransactional(true)
@@ -86,11 +86,6 @@ public:
 	UWorld* GetWorld() const { return PreviewWorld; }
 	FSceneInterface* GetScene() const;
 
-	/** Access to line drawing */
-	class ULineBatchComponent* GetLineBatcher() const { return LineBatcher; }
-	/** Clean out the line batcher each frame */
-	void ClearLineBatcher();
-
 	/**
 	 * Updates the scene capture component
 	 */
@@ -119,7 +114,13 @@ public:
 	/**
 	 * Adds a SceneCaptureComponent2D to the preview world
 	 */
-	void InitSceneCaptureComponent2D(const FTransform& LocalToWorld = FTransform::Identity);
+	void InitSceneCaptureComponent2D(
+		const FTransform& LocalToWorld = FTransform::Identity,
+		UTextureRenderTarget2D* InRenderTarget = nullptr,
+		TEnumAsByte<ECameraProjectionMode::Type> InProjectionType = ECameraProjectionMode::Orthographic,
+		float InOrthoWidth = 256.0f,
+		float InFOVAngle = 90.0f
+	);
 
 	class USceneCaptureComponent2D* GetPreviewCamera() const { return PreviewCamera; }
 
@@ -145,15 +146,20 @@ private:
 	/** Camera transform for the preview scene */
 	TAttribute<FTransform> CameraTransform;
 
+	/** Camera actor that holds the preview camera component */
+	TObjectPtr<AActor> CameraActor = nullptr;
+
 	/** Preview camera component */
 	TObjectPtr<class USceneCaptureComponent2D> PreviewCamera = nullptr;
 
+
+	/** Default directional light component */
+	TObjectPtr<class UDirectionalLightComponent> DirectionalLight = nullptr;
+
 protected:
 
+
 	TObjectPtr<class UWorld> PreviewWorld = nullptr;
-	TObjectPtr<class ULineBatchComponent> LineBatcher = nullptr;
-
-
 
 	/** This controls whether or not all mip levels of textures used by UMeshComponents added to this preview window should be loaded and remain loaded. */
 	bool bForceAllUsedMipsResident;

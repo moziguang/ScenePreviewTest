@@ -29,6 +29,7 @@ SScenePreviewImage::~SScenePreviewImage()
 void SScenePreviewImage::InitializePreviewScene(
 	UMaterialInstanceDynamic* InMaterial,
 	const FTransform& InCameraTransform,
+	TEnumAsByte<ECameraProjectionMode::Type> InProjectionType,
 	float InOrthoWidth,
 	float InFOVAngle,
 	int32 InTextureWidth,
@@ -42,8 +43,16 @@ void SScenePreviewImage::InitializePreviewScene(
 		TextureWidth = InTextureWidth;
 		TextureHeight = InTextureHeight;
 
+		// Step 1: Set material and create render target FIRST
+		DynamicMaterial = InMaterial;
+		ImageBrush.SetResourceObject(DynamicMaterial);
+		
+		// Create render target before creating the preview scene
+		InitRenderTarget(TextureWidth, TextureHeight);
+
+		// Step 2: Create preview scene
 		FScenePreviewScene::ConstructionValues CVS;
-		CVS.SetCreateDefaultLighting(true)
+		CVS.SetCreateDefaultLighting(false)
 			.AllowAudioPlayback(false)
 			.SetForceMipsResident(true)
 			.SetTransactional(true)
@@ -51,20 +60,24 @@ void SScenePreviewImage::InitializePreviewScene(
 
 		MyPreviewScene = MakeShared<FScenePreviewScene>(CVS);
 
-		// Initialize scene capture component with provided camera transform
-		MyPreviewScene->InitSceneCaptureComponent2D(InCameraTransform);
+		// Step 3: Initialize scene capture component with ALL parameters including render target
+		MyPreviewScene->InitSceneCaptureComponent2D(
+			InCameraTransform,
+			PreviewTexture,
+			InProjectionType,
+			InOrthoWidth,
+			InFOVAngle
+		);
 
-		// Set camera parameters
-		MyPreviewScene->SetCameraOrthoWidth(InOrthoWidth);
-		MyPreviewScene->SetCameraFOVAngle(InFOVAngle);
+		// Step 4: Set texture to material
+		if (DynamicMaterial && PreviewTexture)
+		{
+			DynamicMaterial->SetTextureParameterValue(TEXT("PreviewTexture"), PreviewTexture);
+			ImageBrush.ImageSize = FVector2D(TextureWidth, TextureHeight);
+		}
 
-		DynamicMaterial = InMaterial;
-		ImageBrush.SetResourceObject(DynamicMaterial);
-		// Initialize render target with provided texture size
-		InitRenderTarget(TextureWidth, TextureHeight);
-
-		UE_LOG(LogTemp, Log, TEXT("SScenePreviewImage: Successfully initialized preview scene with camera at %s, OrthoWidth=%f, FOV=%f, TextureSize=%dx%d"), 
-			*InCameraTransform.GetLocation().ToString(), InOrthoWidth, InFOVAngle, InTextureWidth, InTextureHeight);
+		UE_LOG(LogTemp, Log, TEXT("SScenePreviewImage: Successfully initialized preview scene with camera at %s, ProjectionType=%d, OrthoWidth=%f, FOV=%f, TextureSize=%dx%d"), 
+			*InCameraTransform.GetLocation().ToString(), InProjectionType.GetValue(), InOrthoWidth, InFOVAngle, InTextureWidth, InTextureHeight);
 	}
 }
 
@@ -83,9 +96,19 @@ void SScenePreviewImage::CleanupPreviewScene()
 	}
 }
 
+bool SScenePreviewImage::IsPreviewSceneValid() const
+{
+	return MyPreviewScene.IsValid();
+}
 
 void SScenePreviewImage::UpdateSceneCapture(float InDeltaTime)
 {
+	// 检查Widget是否可见，不可见时跳过更新以节省性能
+	if (!GetVisibility().IsVisible())
+	{
+		return;
+	}
+
 	if (MyPreviewScene.IsValid())
 	{
 		MyPreviewScene->UpdateSceneCapture(InDeltaTime);
@@ -242,15 +265,9 @@ void SScenePreviewImage::SetMaterial(UMaterialInstanceDynamic* InMaterial)
 void SScenePreviewImage::InitRenderTarget(int32 Width, int32 Height)
 
 {
-	if (!MyPreviewScene.IsValid())
-	{
-		UE_LOG(LogTemp, Error, TEXT("SScenePreviewImage: PreviewScene is null, cannot initialize render target"));
-		return;
-	}
-
 	if (!DynamicMaterial)
 	{
-		UE_LOG(LogTemp, Error, TEXT("SScenePreviewImage: DynamicMaterial is null, cannot initialize render target"));
+		UE_LOG(LogTemp, Warning, TEXT("SScenePreviewImage: DynamicMaterial is null, cannot initialize render target"));
 		return;
 	}
 
@@ -288,13 +305,12 @@ void SScenePreviewImage::InitRenderTarget(int32 Width, int32 Height)
 		if (PreviewCamera && PreviewCamera->IsValidLowLevel())
 		{
 			PreviewCamera->TextureTarget = PreviewTexture;
-			UE_LOG(LogTemp, Log, TEXT("SScenePreviewImage: Initialized render target %dx%d and set to preview camera"), Width, Height);
-		}
-		else
-		{
-			UE_LOG(LogTemp, Warning, TEXT("SScenePreviewImage: PreviewCamera is not valid, cannot set render target"));
+			UE_LOG(LogTemp, Log, TEXT("SScenePreviewImage: Updated render target %dx%d and set to preview camera"), Width, Height);
 		}
 	}
+
 	DynamicMaterial->SetTextureParameterValue(TEXT("PreviewTexture"), PreviewTexture);
 	ImageBrush.ImageSize = FVector2D(Width, Height);
+	
+	UE_LOG(LogTemp, Log, TEXT("SScenePreviewImage: Initialized render target %dx%d"), Width, Height);
 }

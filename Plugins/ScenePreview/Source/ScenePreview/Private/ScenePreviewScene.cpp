@@ -9,6 +9,8 @@
 #include "Components/LineBatchComponent.h"
 #include "Components/MeshComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/LightComponent.h"
+#include "Components/DirectionalLightComponent.h"
 #include "GameFramework/GameModeBase.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/ReflectionCaptureComponent.h"
@@ -60,10 +62,21 @@ FScenePreviewScene::FScenePreviewScene(FScenePreviewScene::ConstructionValues CV
 	UE_LOG(LogTemp, Log, TEXT("Scene Preview World Has Begun Play: %d"), PreviewWorld->GetBegunPlay());
 
 	if (CVS.bDefaultLighting)
-	{
-		LineBatcher = NewObject<ULineBatchComponent>();
-		LineBatcher->bCalculateAccurateBounds = false;
-		AddComponent(LineBatcher, FTransform::Identity);
+	{		
+		// 添加方向光以照亮场景
+		DirectionalLight = NewObject<UDirectionalLightComponent>();
+		DirectionalLight->Intensity = 5000.0f;
+		DirectionalLight->LightColor = FColor::White;
+		DirectionalLight->CastShadows = false;
+		//DirectionalLight->bCastDynamicShadow = true;
+		DirectionalLight->bAffectTranslucentLighting = true;
+		
+		// 设置光源方向（从上方45度角照射）
+		FRotator LightRotation(-45.0f, 0.0f, 0.0f);
+		FTransform LightTransform(LightRotation, FVector::ZeroVector, FVector::OneVector);
+		AddComponent(DirectionalLight, LightTransform);
+		
+		UE_LOG(LogTemp, Log, TEXT("Added default directional light to preview scene"));
 	}
 
 	if (!PreviewWorld->GetBegunPlay())
@@ -94,6 +107,21 @@ FScenePreviewScene::~FScenePreviewScene()
 			}
 		}
 	}
+
+	// Clean up directional light
+	if (DirectionalLight)
+	{
+		RemoveComponent(DirectionalLight);
+		DirectionalLight = nullptr;
+	}
+
+	// Clean up camera actor
+	if (CameraActor && CameraActor->IsValidLowLevel())
+	{
+		CameraActor->Destroy();
+		CameraActor = nullptr;
+	}
+
 
 	// Destroy all spawned actors
 	for (AActor* Actor : SpawnedActors)
@@ -192,50 +220,60 @@ void FScenePreviewScene::RemoveComponent(UActorComponent* Component)
 
 AActor* FScenePreviewScene::SpawnActor(const FScenePreviewWidgetEntry& Entry)
 {
-	if (!PreviewWorld || Entry.ActorClassPtr.IsNull())
+	if (!PreviewWorld)
 	{
+		UE_LOG(LogTemp, Error, TEXT("SpawnActor: PreviewWorld is null"));
+		return nullptr;
+	}
+	
+	if (Entry.ActorClassPtr.IsNull())
+	{
+		UE_LOG(LogTemp, Error, TEXT("SpawnActor: ActorClassPtr is null"));
 		return nullptr;
 	}
 
+	UE_LOG(LogTemp, Log, TEXT("SpawnActor: Loading actor class: %s"), *Entry.ActorClassPtr.ToString());
 	UClass* ActorClass = Entry.ActorClassPtr.LoadSynchronous();
 	if (!ActorClass)
 	{
-		UE_LOG(LogTemp, Error, TEXT("Failed to load actor class for scene preview"));
+		UE_LOG(LogTemp, Error, TEXT("SpawnActor: Failed to load actor class for scene preview"));
 		return nullptr;
 	}
+	
+	UE_LOG(LogTemp, Log, TEXT("SpawnActor: Successfully loaded class: %s"), *ActorClass->GetName());
 
 	FActorSpawnParameters SpawnParams;
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	SpawnParams.bNoFail = true;
 	SpawnParams.ObjectFlags = RF_Transient;
 
+	UE_LOG(LogTemp, Log, TEXT("SpawnActor: Attempting to spawn actor at location: %s"), *Entry.SpawnTransform.GetLocation().ToString());
 	AActor* SpawnedActor = PreviewWorld->SpawnActor<AActor>(ActorClass, Entry.SpawnTransform, SpawnParams);
 	if (SpawnedActor)
 	{
-		SpawnedActors.Add(SpawnedActor);
+		// 注意：不在这里添加到SpawnedActors数组，由调用者（SetEntries）负责添加
+		// 这样避免重复添加同一个actor
 		
 		// 手动调用 BeginPlay，确保 actor 被正确初始化
 		if (!SpawnedActor->HasActorBegunPlay())
 		{
 			SpawnedActor->DispatchBeginPlay();
-			UE_LOG(LogTemp, Log, TEXT("Called BeginPlay for spawned actor: %s"), *SpawnedActor->GetName());
+			UE_LOG(LogTemp, Log, TEXT("SpawnActor: Called BeginPlay for spawned actor: %s"), *SpawnedActor->GetName());
 		}
 		
 		// 确保所有组件都已注册
 		SpawnedActor->RegisterAllComponents();
 		
-		UE_LOG(LogTemp, Log, TEXT("Spawned actor in scene preview: %s at location: %s"), 
+		UE_LOG(LogTemp, Log, TEXT("SpawnActor: Successfully spawned actor: %s at location: %s"), 
 			*SpawnedActor->GetName(), *Entry.SpawnTransform.GetLocation().ToString());
 	}
-
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("Failed to spawn actor in scene preview"));
+		UE_LOG(LogTemp, Error, TEXT("SpawnActor: Failed to spawn actor in scene preview (SpawnActor returned null)"));
 	}
 
 
 	return SpawnedActor;
-
 }
 
 void FScenePreviewScene::DestroyActor(AActor* Actor)
@@ -296,16 +334,18 @@ bool IsNotEqual(const TArray<FScenePreviewWidgetEntry>& A, const TArray<FScenePr
 
 void FScenePreviewScene::SetEntries(const TArray<FScenePreviewWidgetEntry>& InEntries)
 {
+	UE_LOG(LogTemp, Log, TEXT("SetEntries called with %d entries"), InEntries.Num());
 
 	if (Entries.IsSet() && !IsNotEqual(Entries.Get(), InEntries))
 	{
-		UE_LOG(LogTemp, Log, TEXT("Entries is the same"));
+		UE_LOG(LogTemp, Log, TEXT("Entries is the same, skipping"));
 		return;
 	}
 
 	Entries = InEntries;
 
 	// Destroy existing actors
+	UE_LOG(LogTemp, Log, TEXT("Destroying %d existing actors"), SpawnedActors.Num());
 	for (AActor* Actor : SpawnedActors)
 	{
 		if (Actor && Actor->IsValidLowLevel())
@@ -316,14 +356,28 @@ void FScenePreviewScene::SetEntries(const TArray<FScenePreviewWidgetEntry>& InEn
 	SpawnedActors.Empty();
 
 	// Spawn new actors from entries
-	for (const FScenePreviewWidgetEntry& Entry : InEntries)
+	UE_LOG(LogTemp, Log, TEXT("Spawning %d new actors"), InEntries.Num());
+	for (int32 i = 0; i < InEntries.Num(); i++)
 	{
+		const FScenePreviewWidgetEntry& Entry = InEntries[i];
+		UE_LOG(LogTemp, Log, TEXT("  Entry[%d]: ActorClass=%s, Location=%s"), 
+			i, 
+			Entry.ActorClassPtr.IsNull() ? TEXT("NULL") : *Entry.ActorClassPtr.ToString(),
+			*Entry.SpawnTransform.GetLocation().ToString());
+		
 		AActor* SpawnedActor = SpawnActor(Entry);
 		if (SpawnedActor)
 		{
 			SpawnedActors.Add(SpawnedActor);
+			UE_LOG(LogTemp, Log, TEXT("  Successfully spawned actor: %s"), *SpawnedActor->GetName());
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("  Failed to spawn actor for entry %d"), i);
 		}
 	}
+	
+	UE_LOG(LogTemp, Log, TEXT("SetEntries completed. Total spawned actors: %d"), SpawnedActors.Num());
 }
 
 
@@ -333,8 +387,9 @@ void FScenePreviewScene::AddReferencedObjects(FReferenceCollector& Collector)
 	Collector.AddReferencedObjects(Components);
 	Collector.AddReferencedObjects(SpawnedActors);
 	Collector.AddReferencedObject(PreviewWorld);
+	Collector.AddReferencedObject(CameraActor);
 	Collector.AddReferencedObject(PreviewCamera);
-	Collector.AddReferencedObject(LineBatcher);
+	Collector.AddReferencedObject(DirectionalLight);
 
 }
 
@@ -359,17 +414,29 @@ void FScenePreviewScene::UpdateSceneCapture(float InDeltaTime)
 
 	USkyLightComponent::UpdateSkyCaptureContents(PreviewWorld);
 	UReflectionCaptureComponent::UpdateReflectionCaptureContents(PreviewWorld, nullptr, false, false, bInsideTick);
-	ClearLineBatcher();
+
+	//// 添加调试日志：验证 World 的 Tick 是否被调用
+	//static int32 TickCounter = 0;
+	//TickCounter++;
+	//if (TickCounter % 60 == 0)  // 每60帧打印一次，避免日志过多
+	//{
+	//	UE_LOG(LogTemp, Warning, TEXT("🔄 UpdateSceneCapture called (Frame %d)"), TickCounter);
+	//	UE_LOG(LogTemp, Warning, TEXT("  - PreviewWorld: %s"), PreviewWorld ? *PreviewWorld->GetName() : TEXT("NULL"));
+	//	UE_LOG(LogTemp, Warning, TEXT("  - WorldType: %d"), PreviewWorld ? (int32)PreviewWorld->WorldType : -1);
+	//	UE_LOG(LogTemp, Warning, TEXT("  - GameViewport: %s"), PreviewWorld && PreviewWorld->GetGameViewport() ? TEXT("Valid") : TEXT("NULL"));
+	//	UE_LOG(LogTemp, Warning, TEXT("  - FirstPlayerController: %s"), PreviewWorld && PreviewWorld->GetFirstPlayerController() ? TEXT("Valid") : TEXT("NULL"));
+	//	
+	//	if (PreviewCamera)
+	//	{
+	//		UE_LOG(LogTemp, Warning, TEXT("  - PreviewCamera->bCaptureEveryFrame: %d"), PreviewCamera->bCaptureEveryFrame);
+	//		UE_LOG(LogTemp, Warning, TEXT("  - PreviewCamera->IsActive: %d"), PreviewCamera->IsActive());
+	//		UE_LOG(LogTemp, Warning, TEXT("  - PreviewCamera->IsRegistered: %d"), PreviewCamera->IsRegistered());
+	//	}
+	//}
 
 	GetWorld()->Tick(ELevelTick::LEVELTICK_All, InDeltaTime);
-
-	// Log camera world coordinates
 	if (PreviewCamera)
 	{
-		//FVector PreviewCameraLocation = PreviewCamera->GetComponentLocation();
-		//FRotator PreviewCameraRotation = PreviewCamera->GetComponentRotation();
-		//UE_LOG(LogTemp, Log, TEXT("PreviewCamera World Location: %s, Rotation: %s"), 
-		//	*PreviewCameraLocation.ToString(), *PreviewCameraRotation.ToString());
 		PreviewCamera->CaptureScene();
 	}
 	else
@@ -378,16 +445,13 @@ void FScenePreviewScene::UpdateSceneCapture(float InDeltaTime)
 	}
 }
 
-void FScenePreviewScene::ClearLineBatcher()
-{
 
-	if (LineBatcher != NULL)
-	{
-		LineBatcher->Flush();
-	}
-}
-
-void FScenePreviewScene::InitSceneCaptureComponent2D(const FTransform& LocalToWorld)
+void FScenePreviewScene::InitSceneCaptureComponent2D(
+	const FTransform& LocalToWorld,
+	UTextureRenderTarget2D* InRenderTarget,
+	TEnumAsByte<ECameraProjectionMode::Type> InProjectionType,
+	float InOrthoWidth,
+	float InFOVAngle)
 {
 
 	if (!PreviewWorld)
@@ -402,22 +466,57 @@ void FScenePreviewScene::InitSceneCaptureComponent2D(const FTransform& LocalToWo
 		return;
 	}
 
+	// Create a camera actor to hold the preview camera component
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	SpawnParams.bNoFail = true;
+	SpawnParams.ObjectFlags = RF_Transient;
+	
+	CameraActor = PreviewWorld->SpawnActor<AActor>(AActor::StaticClass(), LocalToWorld, SpawnParams);
+	if (!CameraActor)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Failed to create CameraActor"));
+		return;
+	}
+	
+	// Create a root component for the camera actor (AActor doesn't have one by default)
+	USceneComponent* RootComponent = NewObject<USceneComponent>(CameraActor, TEXT("RootComponent"));
+	RootComponent->SetWorldTransform(LocalToWorld);
+	RootComponent->RegisterComponentWithWorld(PreviewWorld);
+	CameraActor->SetRootComponent(RootComponent);
+	
+	UE_LOG(LogTemp, Log, TEXT("Created CameraActor with RootComponent at location: %s"), *LocalToWorld.GetLocation().ToString());
+
 	// Create a new SceneCaptureComponent2D
-	PreviewCamera = NewObject<USceneCaptureComponent2D>(PreviewWorld);
+	PreviewCamera = NewObject<USceneCaptureComponent2D>(CameraActor, TEXT("PreviewCamera"));
 	if (!PreviewCamera)
 	{
 		UE_LOG(LogTemp, Error, TEXT("Failed to create SceneCaptureComponent2D"));
 		return;
 	}
 
-	// Configure the component
-	PreviewCamera->SetRelativeTransform(LocalToWorld);
+	// Configure the component - attach to root component
+	PreviewCamera->SetupAttachment(RootComponent);
+	PreviewCamera->SetRelativeTransform(FTransform::Identity);
+
 	PreviewCamera->bCaptureEveryFrame = false;
 	PreviewCamera->bCaptureOnMovement = false;
+	PreviewCamera->bAlwaysPersistRenderingState = true;
 	PreviewCamera->CaptureSource = ESceneCaptureSource::SCS_SceneColorHDR;
-	PreviewCamera->ProjectionType = ECameraProjectionMode::Orthographic;
-	PreviewCamera->OrthoWidth = 256;
-	
+
+	// Set projection type and camera parameters from input
+	PreviewCamera->ProjectionType = InProjectionType;
+	PreviewCamera->OrthoWidth = InOrthoWidth;
+	PreviewCamera->FOVAngle = InFOVAngle;
+
+	EViewModeIndex CurrentViewMode = VMI_Lit;
+	const bool bCanDisableTonemapper = false;
+	EngineShowFlagOverride(ESFIM_Game, CurrentViewMode, PreviewCamera->ShowFlags, bCanDisableTonemapper);
+	PreviewCamera->ShowFlags.SetMotionBlur(false);
+	PreviewCamera->ShowFlags.SetCameraInterpolation(false);
+	PreviewCamera->ShowFlags.SetLighting(true);
+	PreviewCamera->ShowFlags.SetDynamicShadows(false);
+
 	// Configure ShowFlags for transparent background with HDR
 	// Disable atmospheric and environmental effects that would fill the alpha channel
 	PreviewCamera->ShowFlags.SetAtmosphere(false);           // 禁用大气效果
@@ -425,42 +524,68 @@ void FScenePreviewScene::InitSceneCaptureComponent2D(const FTransform& LocalToWo
 	PreviewCamera->ShowFlags.SetVolumetricFog(false);        // 禁用体积雾
 	//PreviewCamera->ShowFlags.SetVolumetricClouds(false);     // 禁用体积云
 	//PreviewCamera->ShowFlags.SetSkybox(false);               // 禁用天空盒
-	PreviewCamera->ShowFlags.SetSkyLighting(false);          // 禁用天空光照
+	//PreviewCamera->ShowFlags.SetSkyLighting(false);          // 禁用天空光照
 	
 	// Keep post-processing enabled for HDR tone mapping
 	//PreviewCamera->ShowFlags.SetPostProcessing(true);        // 保持后处理（包括色调映射）
 	//PreviewCamera->ShowFlags.SetTonemapper(true);            // 确保色调映射器启用
 	
 	// Enable essential rendering features
-	PreviewCamera->ShowFlags.SetLighting(true);              // 保持光照
-	PreviewCamera->ShowFlags.SetStaticMeshes(true);          // 显示静态网格
-	PreviewCamera->ShowFlags.SetSkeletalMeshes(true);        // 显示骨骼网格
-	PreviewCamera->ShowFlags.SetTranslucency(true);          // 支持透明材质
+	//PreviewCamera->ShowFlags.SetLighting(true);              // 保持光照
+	//PreviewCamera->ShowFlags.SetStaticMeshes(true);          // 显示静态网格
+	//PreviewCamera->ShowFlags.SetSkeletalMeshes(true);        // 显示骨骼网格
+	//PreviewCamera->ShowFlags.SetTranslucency(true);          // 支持透明材质
 
+	// Set render target from input parameter
+	PreviewCamera->TextureTarget = InRenderTarget;
+
+	// Register the component with the world
+	PreviewCamera->RegisterComponentWithWorld(PreviewWorld);
+
+	auto World = PreviewCamera->GetWorld();
+	UE_LOG(LogTemp, Log, TEXT("World Info:"));
+	UE_LOG(LogTemp, Log, TEXT("  - World: %s"), World ? *World->GetName() : TEXT("NULL"));
+	UE_LOG(LogTemp, Log, TEXT("  - WorldType: %d"), World ? (int32)World->WorldType : -1);
+	UE_LOG(LogTemp, Log, TEXT("  - IsGameWorld: %d"), World ? World->IsGameWorld() : false);
+	UE_LOG(LogTemp, Log, TEXT("  - HasBegunPlay: %d"), World ? World->GetBegunPlay() : false);
+	UE_LOG(LogTemp, Log, TEXT("  - Scene: %s"), World && World->Scene ? TEXT("Valid") : TEXT("NULL"));
 	
-	PreviewCamera->TextureTarget = nullptr; // Will be set by SScenePreviewImage
+	// 确保组件处于激活状态，这对于 bCaptureEveryFrame=true 的自动捕获至关重要
+	PreviewCamera->Activate(true);
 
-
-
-	// Add the component to the scene
-	AddComponent(PreviewCamera, LocalToWorld);
-
+	// 验证组件状态
+	FVector CameraLocation = PreviewCamera->GetComponentLocation();
+	FRotator CameraRotation = PreviewCamera->GetComponentRotation();
+	UE_LOG(LogTemp, Log, TEXT("PreviewCamera Status:"));
+	UE_LOG(LogTemp, Log, TEXT("  - IsRegistered: %d"), PreviewCamera->IsRegistered());
+	UE_LOG(LogTemp, Log, TEXT("  - IsActive: %d"), PreviewCamera->IsActive());
+	UE_LOG(LogTemp, Log, TEXT("  - HasBeenCreated: %d"), PreviewCamera->HasBeenCreated());
+	UE_LOG(LogTemp, Log, TEXT("  - World: %s"), PreviewCamera->GetWorld() ? *PreviewCamera->GetWorld()->GetName() : TEXT("NULL"));
+	UE_LOG(LogTemp, Log, TEXT("  - TextureTarget: %s"), PreviewCamera->TextureTarget ? *PreviewCamera->TextureTarget->GetName() : TEXT("NULL"));
+	UE_LOG(LogTemp, Log, TEXT("  - Location: %s"), *CameraLocation.ToString());
+	UE_LOG(LogTemp, Log, TEXT("  - Rotation: %s"), *CameraRotation.ToString());
+	UE_LOG(LogTemp, Log, TEXT("  - ProjectionType: %d"), PreviewCamera->ProjectionType.GetValue());
+	UE_LOG(LogTemp, Log, TEXT("  - OrthoWidth: %f"), PreviewCamera->OrthoWidth);
+	UE_LOG(LogTemp, Log, TEXT("  - FOVAngle: %f"), PreviewCamera->FOVAngle);
 	UE_LOG(LogTemp, Log, TEXT("Added PreviewCamera to preview world"));
 }
 
+
+
 void FScenePreviewScene::SetCameraTransform(const FTransform& InCameraTransform)
 {
-
 	CameraTransform = InCameraTransform;
 	
-	if (PreviewCamera && PreviewCamera->IsValidLowLevel())
+	if (CameraActor && CameraActor->IsValidLowLevel())
 	{
-		PreviewCamera->SetRelativeTransform(CameraTransform.Get());
-		UE_LOG(LogTemp, Log, TEXT("Set camera transform for preview scene"));
+		CameraActor->SetActorTransform(CameraTransform.Get());
+		UE_LOG(LogTemp, Log, TEXT("Set camera actor transform for preview scene - Location: %s, Rotation: %s"), 
+			*CameraTransform.Get().GetLocation().ToString(), 
+			*CameraTransform.Get().GetRotation().Rotator().ToString());
 	}
 	else
 	{
-		UE_LOG(LogTemp, Warning, TEXT("PreviewCamera is not valid, cannot set camera transform"));
+		UE_LOG(LogTemp, Warning, TEXT("CameraActor is not valid, cannot set camera transform"));
 	}
 }
 

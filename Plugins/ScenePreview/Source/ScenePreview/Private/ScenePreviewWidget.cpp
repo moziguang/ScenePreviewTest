@@ -31,23 +31,28 @@ void UScenePreviewWidget::SynchronizeProperties()
 	Super::SynchronizeProperties();
 	UE_LOG(LogTemp, Log, TEXT("UScenePreviewWidget::SynchronizeProperties"));
 
+	if (Material == nullptr)
+	{
+		InitMaterial();
+	}
 
 	// 如果预览场景不存在，则重建场景
-	if (!MyScenePreviewImage.IsValid())
+	if (!MyScenePreviewImage.IsValid() || !MyScenePreviewImage->IsPreviewSceneValid())
 	{
 		RebuildWidget();
+	}
+	else {
+		MyScenePreviewImage->SetCameraProjectionType(CameraProjectionType);
+		MyScenePreviewImage->SetCameraTransform(CameraTransform);
+		MyScenePreviewImage->SetCameraFOVAngle(CameraFOVAngle);
+		MyScenePreviewImage->SetCameraOrthoWidth(CameraOrthoWidth);
+		MyScenePreviewImage->SetTextureSize(TextureWidth, TextureHeight);
+		MyScenePreviewImage->SetMaterial(Material);
 	}
 
 	if (MyScenePreviewImage.IsValid())
 	{
-		MyScenePreviewImage->SetCameraProjectionType(CameraProjectionType);
-		MyScenePreviewImage->SetCameraOrthoWidth(CameraOrthoWidth);
-		MyScenePreviewImage->SetCameraFOVAngle(CameraFOVAngle);
-		MyScenePreviewImage->SetCameraTransform(CameraTransform);
-		MyScenePreviewImage->SetMaterial(Material);
-        MyScenePreviewImage->SetTextureSize(TextureWidth, TextureHeight);
-        MyScenePreviewImage->SetEntries(Entries);
-		//MyScenePreviewImage->UpdateSceneCapture(0.0f);
+		MyScenePreviewImage->SetEntries(Entries);
 	}
 }
 
@@ -112,6 +117,18 @@ void UScenePreviewWidget::SetEntries(const TArray<FScenePreviewWidgetEntry>& ent
 
 	if (MyScenePreviewImage.IsValid())
 	{
+		if (!MyScenePreviewImage->IsPreviewSceneValid())
+		{
+			MyScenePreviewImage->InitializePreviewScene(
+				Material,
+				CameraTransform,
+				CameraProjectionType,
+				CameraOrthoWidth,
+				CameraFOVAngle,
+				TextureWidth,
+				TextureHeight
+			);
+		}
 		MyScenePreviewImage->SetEntries(Entries);
 	}
 }
@@ -254,6 +271,11 @@ void UScenePreviewWidget::SetMaterial(UMaterialInterface* InMaterial)
 
 TSharedRef<SWidget> UScenePreviewWidget::RebuildWidget()
 {
+	if (Material == nullptr)
+	{
+		InitMaterial();
+	}
+
 	// Create the Slate widget if it doesn't exist
 	if (!MyScenePreviewImage.IsValid())
 	{
@@ -267,6 +289,7 @@ TSharedRef<SWidget> UScenePreviewWidget::RebuildWidget()
 		MyScenePreviewImage->InitializePreviewScene(
 			Material,
 			CameraTransform,
+			CameraProjectionType,
 			CameraOrthoWidth,
 			CameraFOVAngle,
 			TextureWidth,
@@ -278,5 +301,17 @@ TSharedRef<SWidget> UScenePreviewWidget::RebuildWidget()
 	return MyScenePreviewImage.ToSharedRef();
 }
 
+void UScenePreviewWidget::CleanupPreviewScene()
+{
+	if (MyScenePreviewImage.IsValid())
+	{
+		MyScenePreviewImage->CleanupPreviewScene();
+		UE_LOG(LogTemp, Log, TEXT("UScenePreviewWidget: Cleaned up preview scene"));
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("UScenePreviewWidget: Cannot cleanup preview scene, MyScenePreviewImage is not valid"));
+	}
+}
 
 
